@@ -1,99 +1,75 @@
-# godb Project Report
+# CodeHolic Database Project Report
 
 ## 1. Executive summary
 
-`godb` is a small, local, command-line database written in Go. It accepts a limited SQL-like language, stores table schemas and rows in a file-backed key/value log, and reconstructs its in-memory state when the database is opened.
+This repository contains `godb`, a small local database project written in Go. Its main program is a persistent key/value store backed by a checksummed append-only file. A separate SQL-like command-line application builds table and row operations on top of that storage engine.
 
-The project is self-contained in the inspected source: the command-line program reads from standard input, writes to standard output, and operates on a caller-selected local file. The inspected Go module declares no third-party dependencies, and the inspected source contains no HTTP, RPC, or database-server client implementation. There is no evidence here of a remote database/API integration.
+The project also contains a separate Windows desktop terminal-emulator prototype under `terminal-emulator/`. It is independent of the database and is not needed to use the SQL shell. The SQL shell itself is a native terminal application; its banner, prompt, and result messages use terminal text and ANSI colors rather than a browser or desktop window.
 
-The code comments describe the engine as “crash-safe,” but the tests do not simulate abrupt process termination, power loss, or failing storage. That label should be treated as an implementation goal, not as independently demonstrated production-grade crash safety.
+The implementation has useful durability, recovery, locking, verification, compaction, and stress-test mechanisms. Its tests are meaningful regression coverage, but they do not prove safety under every crash, power-loss, storage-device, or operating-system failure. Treat this as a learning/prototype project, not as a production database for valuable data without additional review and testing.
 
-## 2. What problem it solves
+## 2. Repository map
 
-The program provides a compact way to create tables and perform basic row operations without installing or connecting to a separate database server. Its data is kept in a local file, rather than sent to an external API.
+| Path | Purpose |
+|---|---|
+| `main.go` | Root key/value CLI: `open`, `put`, `get`, `del`, `batch`, `dump`, `check`, `compact`, and `serve`. |
+| `internal/storage/` | Append-only log engine, record format, recovery, locking, quotas, compaction, verification, and storage tests. |
+| `extras/sqlshell/main.go` | Entry point for the interactive SQL-like shell. |
+| `extras/shell/` | Reads terminal input, handles shell commands, calls the parser/executor, and formats output. |
+| `extras/sql/` | SQL-like lexer and parser; converts one command into a typed command or condition tree. |
+| `extras/executor/` | Executes parsed commands against the catalog and storage engine. |
+| `extras/catalog/` | Table schemas, column validation, row encoding/decoding, and storage-key layout. |
+| `cmd/torture/` | Process-kill/recovery stress-test runner for the root key/value CLI. |
+| `PROJECT_REPORT.md` | This overview. |
+| `STORAGE_TEST_REPORT.md` | More detailed review of storage unit-test scope and its coverage gaps. |
+| `terminal-emulator/` | Optional, separate Wails Windows desktop terminal prototype. |
 
-The implementation provides:
+The root Go module is named `godb` and declares Go 1.24 in `go.mod`. The root module has no third-party Go dependencies. The optional desktop app is its own Go/Node subproject with separate dependencies.
 
-- Persistent tables and rows using a local append-only log.
-- A small SQL-like interactive shell.
-- Basic schema changes and row CRUD operations.
-- Per-operation durable writes and atomic batches in the storage engine.
-- Startup replay, handling of incomplete log tails, log verification, and compaction.
-- A single-open-process lock intended to prevent two processes from independently writing the same database.
+## 3. Two ways to use the database
 
-There is no code evidence that this project is intended to be a general-purpose SQL database, a network service, a multi-user server, or a replacement for a mature database product.
+### SQL-like shell
 
-## 3. Architecture
+The SQL shell is the interactive table interface most users should start with:
 
-The source is divided into these layers:
-
-| Layer | Source | Responsibility |
-|---|---|---|
-| Program entry point | [`main.go`](./main.go) | Selects the database path, opens storage, starts the shell, closes storage, and reports errors. |
-| Interactive shell | [`internal/shell/shell.go`](./internal/shell/shell.go) | Reads commands from standard input, handles shell-only commands, invokes the parser and executor, and prints results. |
-| SQL-like lexer/parser | [`internal/sql/lexer.go`](./internal/sql/lexer.go), [`internal/sql/parser.go`](./internal/sql/parser.go) | Converts one line/statement into tokens and then a typed command or WHERE-expression tree. |
-| Command executor | [`internal/executor/executor.go`](./internal/executor/executor.go) | Applies parsed table and row commands using the catalog and storage engine. |
-| Schema catalog and row codec | [`internal/catalog/catalog.go`](./internal/catalog/catalog.go) | Stores table metadata, maps rows to engine keys, validates/coerces values, and encodes rows as JSON. |
-| Storage engine and record format | [`internal/storage/engine.go`](./internal/storage/engine.go), [`internal/storage/record.go`](./internal/storage/record.go) | Maintains the in-memory key/value map and appends/checks/replays framed records in the database file. |
-| Process locking | [`internal/storage/lock_windows.go`](./internal/storage/lock_windows.go), [`internal/storage/lock_unix.go`](./internal/storage/lock_unix.go), [`internal/storage/lock_other.go`](./internal/storage/lock_other.go) | Implements or attempts to implement platform-dependent database locking and file replacement. |
-
-### Data representation
-
-The catalog uses engine keys with these prefixes:
-
-- `meta/<table>` stores a JSON table schema.
-- `row/<table>/<row-id>` stores a JSON object whose properties are permanent numeric column IDs.
-
-Permanent column IDs let the schema append or remove columns without rewriting every row: newly added columns read as `NULL` for older rows, and dropped-column values are ignored. Dropping and later re-adding a column gives it a new ID.
-
-The storage file is an append-only sequence of records. Each record contains a magic header, CRC32 checksum, operation type, batch ID, sequence number, key/value lengths, key/value bytes, and trailer. Record framing and limits are implemented in `record.go`.
-
-The engine loads the file into a Go map on open and keeps current data in memory while it is running. Consequently, this is not a page-based or memory-mapped database: startup reads and scans the log, and the current key/value state also consumes memory.
-
-## 4. How a command flows through the program
-
-```text
-Start program
-  -> choose database path (argument, or "godb.data")
-  -> acquire process lock and read/replay the log
-  -> create shell over stdin/stdout
-  -> read one command (possibly continued with a trailing backslash)
-       -> shell command (.verify, .compact, .help, .exit), OR
-       -> lexer -> parser -> executor
-            -> catalog loads/validates schema
-            -> executor reads rows and/or constructs changes
-            -> storage appends records and synchronizes writes
-       -> print result or error; continue prompt
-  -> EXIT/QUIT or end of input
-  -> synchronize/close database and release lock
+```powershell
+Set-Location 'D:\path\to\Srinathonn'
+go run ./extras/sqlshell .\mydb.data
 ```
 
-### Writes and batches
+At the styled `CH godb>` prompt, enter SQL-like commands such as `SHOW TABLES`, `CREATE TABLE ...`, and `SELECT ...`. Type `HELP` for the in-shell command list, or `EXIT` to close the shell. The data file persists and can be reopened by passing the same path again.
 
-A normal `Put` appends one record and calls file `Sync` before updating the in-memory map. A normal `Delete` does the same when the key exists; deleting a missing key is a no-op.
+To build and run a standalone SQL-shell executable:
 
-A batch accumulates operations in memory, then appends the batch records plus a commit marker and synchronizes them. On replay, a batch is applied only when its matching commit marker and operation count are valid. The SQL executor uses batches for multi-row inserts, updates, and deletes; inserts also commit the new row counter with the inserted rows.
+```powershell
+go build -o sqlshell.exe ./extras/sqlshell
+.\sqlshell.exe .\mydb.data
+```
 
-The engine mutex serializes access inside one process. A separate OS lock is used to reject another process opening the same lock path. These mechanisms do not make the catalog itself a concurrently safe public API; the catalog explicitly states that it is not safe for concurrent goroutine use, and the shell executes one command at a time.
+Run Go commands such as `go run` and `go build` at the PowerShell prompt (`PS ...>`), not at the database prompt (`CH godb>`).
 
-### Startup recovery and verification
+### Root key/value CLI
 
-On open, the engine reads the database file and scans records:
+The repository root's `main.go` is a different command-line interface, not the SQL shell. It requires a subcommand:
 
-- A valid standalone operation is replayed.
-- A batch is applied only after a valid commit record.
-- A trailing incomplete/corrupt portion is excluded from replay and truncated to the last accepted boundary.
-- Detected middle-of-log corruption returns an error rather than intentionally truncating through later valid records.
+```powershell
+go run . open .\mydb.data
+go run . put .\kv.data 6e616d65 41736861
+go run . get .\kv.data 6e616d65
+go run . dump .\kv.data
+go run . check .\kv.data
+go run . compact .\kv.data
+```
 
-`.verify` re-reads and scans the file without modifying it. It reports file size, accepted bytes, record/batch counts, live key count, and trailing bytes. It checks the storage log format and batch structure; it does not validate every catalog schema or decode every row JSON document.
+The key/value CLI takes hexadecimal keys and values. In the example, `6e616d65` is `name` and `41736861` is `Asha`; `get` prints the value in hex. The SQL shell stores its metadata and rows under its own key prefixes in the same underlying file format. Prefer using one interface consistently for a given database file.
 
-### Compaction
+The root CLI also supports `del`, `batch`, and `serve`. Its optional `--max-bytes N` flag caps database size for supported operations; `serve --concurrent` allows concurrent request handling with replies that may be reordered. See the usage comment and argument validation in `main.go` for exact forms and exit codes.
 
-`.compact` writes current live keys to a temporary `<database>.compact` file, synchronizes it, scans it back, and checks that the reconstructed keys/values match the current in-memory state before replacing the original file. The platform-specific replacement and directory-sync behavior differs by OS. A `.lock` sidecar is used while the engine is open; do not delete or replace it while the database is in use.
+## 4. SQL-like language reference
 
-## 5. Commands actually implemented
+Enter one command per line at the SQL prompt. A trailing semicolon is optional. A line ending with `\` continues onto the next line. The parser accepts one statement at a time; it does not run general multi-statement SQL scripts.
 
-The shell help and parser implement the following command forms:
+### Table and schema commands
 
 ```sql
 CREATE TABLE name (column TYPE, ...)
@@ -102,96 +78,186 @@ ALTER TABLE name ADD COLUMN column TYPE
 ALTER TABLE name DROP COLUMN column
 SHOW TABLES
 DESCRIBE name
-INSERT INTO name [(column, ...)] VALUES (...), (...)
-SELECT column, ... | * FROM name [WHERE condition]
-UPDATE name SET column = value, ... [WHERE condition]
-DELETE FROM name [WHERE condition]
-HELP
-EXIT
-QUIT
 ```
 
-Shell-only commands:
+Supported column types are `INT`, `FLOAT`, `TEXT`, and `BOOL`. Names and keywords are case-insensitive and table/column names are normalized to lowercase by the catalog. `DESCRIBE` also accepts `DESC`.
 
-```text
-.verify
-.compact
-.help
-.exit
-.quit
-```
-
-Supported column types are `INT`, `FLOAT`, `TEXT`, and `BOOL`. `NULL` is accepted for each type. Values are literals; `UPDATE` assignments do not evaluate expressions.
-
-WHERE conditions support `=`, `!=`, `<>`, `<`, `>`, `<=`, `>=`, `IS NULL`, `IS NOT NULL`, parentheses, `AND`, and `OR`. `AND` binds more tightly than `OR`.
-
-Names and keywords are case-insensitive in the parser; names are normalized to lowercase. The lexer accepts ASCII letters and underscores at the start of identifiers and digits after the first character. String literals use single quotes and the lexer escapes an embedded apostrophe by doubling it, e.g. `'it''s'`. A trailing semicolon is accepted. A trailing backslash in shell input joins the next line.
-
-The parser handles one command per input; it does not implement a general multi-statement SQL script.
-
-### Example session
+### Insert rows
 
 ```sql
-CREATE TABLE users (name TEXT, age INT, active BOOL)
-INSERT INTO users VALUES ('Asha', 31, TRUE), ('Noah', 28, FALSE)
-SELECT name, age FROM users WHERE active = TRUE
-UPDATE users SET age = 32 WHERE name = 'Asha'
-DELETE FROM users WHERE active = FALSE
-SHOW TABLES
-DESCRIBE users
-.verify
-.compact
-EXIT
+INSERT INTO name VALUES (value, ...)
+INSERT INTO name (column, ...) VALUES (value, ...)
+INSERT INTO name VALUES (value, ...), (value, ...)
 ```
 
-## 6. Running it
+Each `INSERT` targets one table. Without a column list, values must match the table's column order and count. With a column list, values must match that list. A multi-row insert is committed as a batch along with the table's next-row counter.
 
-The module name is `godb`; `go.mod` declares Go `1.27.3`. The program uses `godb.data` in the current directory unless a database path is supplied as its first argument.
+### Select rows
+
+```sql
+SELECT * FROM name
+SELECT column, ... FROM name
+SELECT column, ... FROM name WHERE condition
+```
+
+The implementation scans rows for the selected table. It has no indexes or `ORDER BY`; result ordering should not be treated as an SQL ordering guarantee.
+
+### Update and delete
+
+```sql
+UPDATE name SET column = value WHERE condition
+DELETE FROM name WHERE condition
+```
+
+Multiple update assignments can be comma-separated. Values are literals; expressions such as `age = age + 1` are not implemented. Omitting `WHERE` is accepted: an `UPDATE` then matches all rows, and a `DELETE` removes all rows in the selected table. Check the target table and condition carefully before using either form without `WHERE`.
+
+### Literals and conditions
+
+Values may be integer, floating-point, text, boolean (`TRUE` or `FALSE`), or `NULL` literals. Text uses single quotes; double an apostrophe to include it inside a string, for example `'it''s text'`.
+
+Conditions support comparisons `=`, `!=`, `<>`, `<`, `>`, `<=`, and `>=`, plus `IS NULL`, `IS NOT NULL`, parentheses, `AND`, and `OR`. `AND` binds more tightly than `OR`.
+
+Examples:
+
+```sql
+SELECT * FROM products WHERE price >= 10
+SELECT * FROM users WHERE name = 'Ravi'
+SELECT * FROM users WHERE active = TRUE
+SELECT * FROM users WHERE name IS NOT NULL
+SELECT * FROM products WHERE price > 10 AND in_stock = TRUE
+SELECT * FROM users WHERE name = 'Ravi' OR name = 'Asha'
+```
+
+This is a deliberately small SQL-like language, not a complete SQL implementation.
+
+### Shell-only commands
+
+```text
+HELP       show SQL and shell command help
+.help      show shell command help
+.verify    read-only log integrity check
+.compact   rewrite the log to retain current live data
+EXIT       leave the shell (also QUIT, .exit, .quit)
+```
+
+Only one process can open a given database at a time. The OS-managed `.lock` sidecar is used while open; do not delete or replace it while the database is running.
+
+## 5. Terminal prompt appearance
+
+The SQL shell writes directly to the terminal. It prints a CodeHolic banner, an orange-accented `CH godb>` prompt, highlighted table headings, and colored success, error, and status messages when output is an interactive terminal. ANSI color is disabled when `NO_COLOR` is set, `TERM=dumb`, or output is redirected/non-terminal. The prompt change does not change SQL syntax or database behavior.
+
+The shell is not an interactive full-screen terminal emulator: it does not provide panes, tabs, a dashboard, command history editing, or a virtual keyboard. Those are different application features.
+
+## 6. Architecture and data flow
+
+```text
+SQL shell entry point
+  -> open selected local database file
+  -> read one command from stdin
+  -> lexer -> parser -> typed command
+  -> executor
+       -> catalog reads/validates schema and rows
+       -> storage engine commits key/value changes
+  -> print result/error to stdout
+  -> EXIT or end of input
+  -> close database and release process lock
+```
+
+### Catalog layout
+
+The catalog stores:
+
+- `meta/<table>`: JSON-encoded table schema, including the next row/column IDs.
+- `row/<table>/<row-id>`: JSON-encoded row values, keyed by permanent numeric column IDs.
+
+Permanent column IDs make schema changes relatively cheap. Existing rows have no value for a newly added column and read it as `NULL`; values for a dropped column are ignored. Re-adding a dropped column uses a new ID so the old value does not silently reappear.
+
+### Storage engine
+
+The storage engine loads the log into an in-memory Go map during open and updates it while the process runs. The file is an append-only sequence of framed records containing metadata such as operation type, sequence/batch identifiers, lengths, checksum, key/value data, and framing markers. Record sizes are bounded (the record code defines a 1 MiB maximum value and a maximum batch operation count).
+
+A standalone put is appended and synchronized before the in-memory state is changed. Deletes of missing keys are no-ops. Batches accumulate changes, append a commit marker, and synchronize; replay applies a batch only when its commit record and operation count are valid. SQL multi-row inserts and row mutations use batches where appropriate.
+
+The engine serializes in-process access with a mutex and uses platform-specific locking to reject a second process opening the same database. This lock does not implement multi-process transactions. The catalog is documented as not safe for concurrent goroutine use.
+
+### Recovery, verification, and compaction
+
+On open, the engine replays valid standalone operations and committed batches. Incomplete trailing data and uncommitted batches are excluded from live state and handled as a tail-recovery case. Detected middle-of-log corruption is reported instead of intentionally truncating through later valid data.
+
+`.verify` scans the log without repairing it and reports file size, valid bytes, record/batch counts, live-key count, and any trailing bytes. It verifies storage-log structure; it does not validate every SQL schema or decode every row.
+
+`.compact` writes current live keys to a temporary file, synchronizes and checks the result, then replaces the original using platform-specific replacement logic. Compaction is intended to discard obsolete overwritten/deleted log history. Keep a separate backup of important data; compaction and recovery behavior are not a substitute for backups.
+
+## 7. Root key/value CLI details
+
+The root executable is useful for exercising storage directly without SQL tables:
+
+| Command | Purpose |
+|---|---|
+| `open <db>` | Open/recover the file and report the current key count. |
+| `put <db> <hexkey> <hexval>` | Store a byte-string key and value. |
+| `get <db> <hexkey>` | Print the value in hex, or report not found. |
+| `del <db> <hexkey>` | Delete a key. |
+| `batch <db>` | Read batch operations from stdin and commit them atomically. |
+| `dump <db>` | Print sorted key/value pairs in hex. |
+| `check <db>` | Perform read-only storage-log verification. |
+| `compact <db>` | Compact the storage log. |
+| `serve <db>` | Read the documented line protocol from stdin and respond on stdout. |
+
+The CLI also defines exit codes for usage errors, missing keys, disk-full errors, and detected log corruption. Consult `main.go` for the precise output and protocol format.
+
+## 8. Testing and observed verification
+
+### Automated Go tests
+
+From the repository root:
 
 ```powershell
 go test ./...
-go run . 'D:\path\to\my.data'
+go vet ./...
 ```
 
-The shell reads commands from standard input. For example, on PowerShell:
+During the latest SQL-prompt change, `go test ./...` and `go vet ./...` passed. The SQL shell regression tests exercise a plain-text SQL session and ANSI styling for prompt/errors. The storage tests cover normal reopen, batch replay, tail recovery, selected middle corruption, concurrent in-process writers, compaction/reopen, deterministic operation sequences, and second-process locking.
 
-```powershell
-@'
-CREATE TABLE users (name TEXT, age INT)
-INSERT INTO users VALUES ('Asha', 31)
-SELECT * FROM users
-EXIT
-'@ | go run . 'D:\path\to\my.data'
-```
+See [`STORAGE_TEST_REPORT.md`](./STORAGE_TEST_REPORT.md) for the existing detailed test-by-test review and gaps.
 
-The program is not an HTTP API. The observed entry point connects `storage.Open` to the shell using `os.Stdin` and `os.Stdout`; no remote endpoint is configured in the inspected files.
+### Process-kill torture runs observed on Windows
 
-## 7. What it does not implement
+The separate `cmd/torture` runner was built and run against temporary databases in these modes:
 
-The inspected parser/executor has no implementation for joins, indexes, ordering, limits, aggregates, constraints, foreign keys, prepared statements, user authentication, roles, network protocol, replication, backup/restore command, or a migration framework. This list describes what was not found in the inspected project source; it is not a claim about a future roadmap.
+| Mode | Iterations | Observed result |
+|---|---:|---|
+| `mixed` | 500 | PASS; 30,055 acknowledged operations. |
+| `large-values` | 100 | PASS. |
+| `large-batches` | 20 | PASS. |
+| `recovery-crash` | 100 | PASS; 70 simulated torn tails and 198 recovery-process kills. |
+| `compaction` | 100 | PASS. |
+| `disk-full` | 100 | PASS; 96 disk-full responses were handled as expected with a 64 KiB cap. |
 
-There is no documented support for multiple concurrent application processes sharing a database. The locking code is intended to enforce one open process, not to provide multi-process transactions.
+These are process-termination and simulated-tail tests, not actual power-loss or hardware-failure simulations. The process-kill runner checks acknowledged writes and batch consistency against its in-memory oracle. It is not a proof of production crash safety.
 
-The executor scans the in-memory map by key prefix and loads all rows for the target table for `SELECT`, `UPDATE`, and `DELETE`; no secondary index is implemented. Large tables therefore should not be assumed to have production-scale query performance.
+### Optional terminal-emulator checks
 
-There are no README or deployment/operations instructions in the inspected workspace. The supplied `test.data` and zero-byte file named `26` exist, but their purpose and provenance are not established by the source or documentation inspected here.
+The separate `terminal-emulator/` desktop prototype was also built and checked during development. Its Go tests passed, including a Windows ConPTY smoke test that started PowerShell and observed output. Its frontend bundle built successfully, and its desktop process stayed running during a startup smoke test. These results apply to that separate prototype, not to the SQL shell or database durability.
 
-## 8. Verified status and honest limitations
+## 9. Separate Windows desktop terminal prototype
 
-### Checks run for this report
+`terminal-emulator/` is a standalone Wails desktop application that embeds an xterm.js frontend in a native Windows app window and runs PowerShell using Windows ConPTY. It includes a dark/orange dashboard, system metrics, terminal tabs, and a two-pane split action. It is separate from the SQL shell and database.
 
-- `go test ./...` — passed; non-storage packages report no test files.
-- `go vet ./...` — passed.
-- A Linux storage-test cross-compile had passed in the previous review. That was compilation only, not Linux runtime validation.
-- `go test -race` was previously attempted but could not run because CGO was disabled and the race detector requires CGO in this environment.
-- A Plan 9 cross-compile was run for this report and **failed** with `undefined: os` in `internal/storage/lock_other.go`. That fallback file calls `os.Rename` but imports only `fmt`. The project's intended fallback behavior is to report unsupported inter-process locking; as written, at least this target does not compile. This issue is documented, not fixed, in this report.
+Although it uses HTML/JavaScript/CSS inside the native app window, it is not a hosted website or web service. Node.js/npm are needed to build its frontend bundle; the resulting Go application embeds that bundle in the executable. It can be ignored if the goal is only to use or restyle the `godb>` database prompt.
 
-### Test coverage is not a safety certification
+The app's own build and run instructions are in [`terminal-emulator/README.md`](./terminal-emulator/README.md).
 
-The storage tests cover normal reopen, a torn tail, selected middle corruption, committed/uncommitted batches, compaction/reopen, goroutine writers, randomized operations, and rejection of a competing process. They do not simulate power loss, forced process termination during a write/compaction, injected filesystem errors, or all supported OS lock/replacement behaviors. See [`STORAGE_TEST_REPORT.md`](./STORAGE_TEST_REPORT.md) for the test-by-test review and recommended follow-up.
+## 10. Limitations and non-goals
 
-The successful test and vet commands establish only that those commands passed on this machine for the checked code. They do not establish that the database is safe for valuable production data, that all crash scenarios are handled, or that performance is adequate for a particular workload.
+The inspected parser/executor does not implement joins, indexes, `ORDER BY`, `LIMIT`, aggregates, constraints, foreign keys, prepared statements, authentication/roles, replication, a network database service, or a migration/backup framework. There is no secondary index: SQL row reads and mutations scan table rows, so large-table performance is not established.
 
-## 9. Bottom line
+The database maintains its current key/value state in RAM. Startup replays the log, and scans can be proportional to stored data. The storage lock is intended to enforce a single open process, not coordinate multiple clients. Platform-specific lock, rename, and directory-sync behavior requires testing on each supported operating system.
 
-The evidence supports describing this as a small, local, single-process SQL-like database prototype with an in-memory key/value map backed by a checksummed append-only file. It has useful durability and recovery mechanisms and a meaningful storage regression suite. It is not demonstrated to be a mature production database, and its crash behavior, filesystem-failure behavior, scalability, and cross-platform support need more testing. The confirmed fallback-platform compile failure should be fixed before claiming portable builds.
+Tests do not cover every malformed log boundary, injected short writes/sync failures, every compaction replacement failure, every platform's runtime locking behavior, or genuine power-loss behavior. A process kill does not clear the operating system's file cache. The existing storage report identifies additional test recommendations.
+
+## 11. Summary
+
+The repository is a local Go key/value engine with a small SQL-like table layer and terminal shell. Use `go run ./extras/sqlshell <database-file>` for the interactive SQL interface, and `go run . <subcommand> ...` for direct storage operations. The styled SQL prompt is terminal-native. The optional Wails emulator is a separate desktop app and is not required for database access.
+
+The test and stress results provide useful evidence that the checked scenarios work on the tested Windows machine, but they are not a safety certification or a substitute for backups. Do not assume full SQL compatibility, multi-process access, production-scale performance, or proven behavior under all crash and hardware failure modes.

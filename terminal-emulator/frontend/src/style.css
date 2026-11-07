@@ -1,0 +1,72 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", sans-serif;
+  color: #d8d6ca;
+  background: #090b0b;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 760px; min-height: 520px; background: #090b0b; }
+button { font: inherit; }
+.shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); height: 100vh; min-height: 520px; background: #090b0b; }
+.rail { display: flex; flex-direction: column; padding: 18px 14px 12px; background: #101312; border-right: 1px solid #342419; gap: 12px; }
+.brand-mark { display: grid; place-items: center; width: 42px; height: 42px; color: #ff8a4c; border: 1px solid #754122; font-weight: 800; letter-spacing: -2px; font-size: 15px; }
+.rail-label, .eyebrow, .pane-title, .tab, .tool-button, .statusbar, .rail-footer, .metric-note { font-family: "Cascadia Mono", Consolas, monospace; letter-spacing: .12em; }
+.rail-label { color: #dc7641; font-size: 10px; padding: 11px 2px 3px; border-bottom: 1px solid #49301f; }
+.metric-card, .process-card { padding: 10px 10px 11px; background: #0c0f0e; border: 1px solid #29221c; }
+.eyebrow { color: #bd6940; font-size: 9px; }
+.metric-value { margin: 9px 0 7px; color: #f0ad72; font: 28px "Cascadia Mono", Consolas, monospace; }
+.metric-value small { color: #937156; font-size: 12px; margin-left: 3px; }
+.meter { height: 4px; background: #27231e; overflow: hidden; }
+.meter i { display: block; width: 0; height: 100%; background: #e8793e; transition: width .3s ease; }
+.metric-note { margin-top: 7px; color: #786b5d; font-size: 9px; }
+.uptime-value { margin-top: 10px; color: #dfd6c6; font: 13px "Cascadia Mono", Consolas, monospace; }
+.process-card { flex: 1; min-height: 100px; overflow: hidden; }
+.process-list { margin-top: 10px; display: grid; gap: 7px; color: #baaa96; font: 10px "Cascadia Mono", Consolas, monospace; }
+.process-row { display: flex; justify-content: space-between; gap: 8px; overflow: hidden; }
+.process-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.process-row b { color: #805c42; font-weight: 400; }
+.rail-footer { color: #7a7467; font-size: 8px; margin-top: auto; }
+.live-dot { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: #a4bd72; box-shadow: 0 0 8px #849f4e; }
+.workspace { display: grid; grid-template-rows: 40px 42px minmax(0, 1fr) 25px; min-width: 0; }
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 0 16px; background: #0d100f; border-bottom: 1px solid #32251c; }
+.window-dots { display: flex; gap: 6px; }
+.window-dots i { width: 8px; height: 8px; border-radius: 50%; background: #9c5232; }
+.window-dots i:nth-child(2) { background: #c3874c; }
+.window-dots i:nth-child(3) { background: #8d9f61; }
+.window-title { color: #bf7650; font: 10px "Cascadia Mono", Consolas, monospace; letter-spacing: .18em; }
+.window-title span { color: #605447; }
+.topbar-status { color: #8f897e; font: 9px "Cascadia Mono", Consolas, monospace; letter-spacing: .1em; }
+.tabs { display: flex; align-items: stretch; background: #111413; border-bottom: 1px solid #30251d; }
+.tab { display: flex; align-items: center; gap: 9px; min-width: 158px; padding: 0 13px; color: #8e7968; background: transparent; border: 0; border-right: 1px solid #2b241f; font-size: 9px; cursor: pointer; }
+.tab.selected { color: #ffc18c; background: #20170f; box-shadow: inset 0 2px #e87b41; }
+.tab-light { width: 5px; height: 5px; background: #a4bd72; border-radius: 50%; }
+.tab-close { margin-left: auto; color: #756556; font-size: 15px; }
+.tab-close:hover { color: #ff9760; }
+.tab-add, .tool-button { padding: 0 13px; color: #df8350; background: transparent; border: 0; border-right: 1px solid #2b241f; cursor: pointer; }
+.tab-add:hover, .tool-button:hover { background: #241a13; color: #ffc18c; }
+.tab-actions { display: flex; margin-left: auto; }
+.tool-button { border-right: 0; font-size: 9px; }
+.terminal-stage { display: flex; min-height: 0; padding: 8px; gap: 8px; background: #090b0b; }
+.terminal-pane { display: flex; flex: 1 1 0; flex-direction: column; min-width: 0; border: 1px solid #342519; background: #090b0b; }
+.pane-title { display: flex; justify-content: space-between; padding: 8px 10px; color: #a75c36; background: #111311; border-bottom: 1px solid #33251b; font-size: 9px; }
+.terminal-mount { flex: 1; min-height: 0; padding: 8px; }
+.terminal-mount .xterm { height: 100%; }
+.empty-state { margin: auto; text-align: center; color: #877968; }
+.empty-mark { color: #ff8a4c; font-size: 34px; font-weight: 800; letter-spacing: -5px; }
+.empty-state h1 { color: #e29a68; font: 12px "Cascadia Mono", Consolas, monospace; letter-spacing: .2em; }
+.empty-state p { font-size: 12px; }
+.primary-button { margin-top: 14px; padding: 10px 15px; color: #ffbe91; background: #2a1b12; border: 1px solid #9a552f; font: 10px "Cascadia Mono", Consolas, monospace; letter-spacing: .12em; cursor: pointer; }
+.primary-button:hover { background: #422516; }
+.statusbar { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; color: #84715e; background: #121513; border-top: 1px solid #30251d; font-size: 8px; }
+.statusbar b { color: #a4bd72; }
+.toast { position: fixed; right: 18px; bottom: 40px; max-width: 440px; padding: 12px 16px; color: #ffe3d0; background: #3a2016; border: 1px solid #b65f35; box-shadow: 0 8px 30px #0009; font: 12px "Cascadia Mono", Consolas, monospace; }
+.staging-mount { position: fixed; left: -10000px; top: -10000px; width: 800px; height: 500px; }
+
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 185px minmax(0, 1fr); }
+  .rail { padding-left: 10px; padding-right: 10px; }
+  .tab { min-width: 120px; }
+}
